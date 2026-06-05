@@ -877,14 +877,38 @@ def show_diff(path: str, old_text: str, new_text: str) -> None:
 def run_bash(command: str) -> str:
     if not confirm("bash"):
         return "Error: user denied this command."
-    try:
-        r = subprocess.run(
-            command, shell=True, capture_output=True, text=True, timeout=120, cwd=WORKDIR
-        )
-        out = (r.stdout + r.stderr).strip()
-        return out[:20000] if out else f"(no output, exit code {r.returncode})"
-    except subprocess.TimeoutExpired:
-        return "Error: command timed out after 120s."
+    import signal
+
+    p = subprocess.Popen(
+        command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        text=True, cwd=WORKDIR, start_new_session=True,  # group ใหม่ → ฆ่าลูกหลานได้หมด
+    )
+
+    def kill():
+        try:
+            os.killpg(os.getpgid(p.pid), signal.SIGKILL)
+        except Exception:
+            pass
+        try:
+            p.communicate(timeout=1)  # เก็บศพ กัน zombie
+        except Exception:
+            pass
+
+    intr = _active_interrupt
+    deadline = time.monotonic() + 120
+    while True:
+        try:
+            out, _ = p.communicate(timeout=0.2)  # docs: จับ TimeoutExpired แล้ว retry ได้
+            out = (out or "").strip()
+            return out[:20000] if out else f"(no output, exit code {p.returncode})"
+        except subprocess.TimeoutExpired:
+            pass
+        if intr and intr.stopped():  # ESC → ฆ่าทั้ง process group ทันที
+            kill()
+            return "Error: ถูกหยุดโดยผู้ใช้ (ESC)"
+        if time.monotonic() > deadline:
+            kill()
+            return "Error: command timed out after 120s."
 
 
 def read_file(path: str) -> str:

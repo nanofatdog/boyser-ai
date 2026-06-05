@@ -136,6 +136,8 @@ THEME = {"name": "ฟ้า", **THEMES["ฟ้า"]}
 THINK_ON = False  # /think: ให้โมเดล local reason ก่อนตอบ (ช้าลงแต่ฉลาดขึ้น)
 MAX_TOOL_ROUNDS = 25  # กันลูป agentic ไม่จบ (โมเดลเรียก tool ซ้ำไม่หยุด)
 LONGDOC_CHARS = 150_000  # ~40-50k token — เกินนี้ถือเป็น request วิเคราะห์เอกสารยาว
+VOTE_ON = True  # /vote: เอกสารยาวถามซ้ำ 3 รอบหา consensus (โมเดล local ตอบไม่นิ่งแม้ temp 0)
+VOTE_ROUNDS = 3
 
 
 def longdoc_options(messages: list) -> dict:
@@ -147,6 +149,57 @@ def longdoc_options(messages: list) -> dict:
     if chars < LONGDOC_CHARS:
         return {}
     return {"num_predict": 4096}
+
+
+def vote_consensus(backend, messages, first: str, intr=None) -> str | None:
+    """เอกสารยาว + โมเดล local = คำตอบไม่นิ่งแม้ temp 0 (เทสต์ 2026-06-06: เงื่อนไขเดิมเป๊ะ
+    รันซ้ำได้คนละคำตอบ/บางทีติด loop) → ถามซ้ำให้ครบ VOTE_ROUNDS รอบ — รอบ 2+ แทบฟรี
+    เพราะ Ollama reuse KV cache ของ prefix เดิม. ตรงกันหมด = ผ่าน; ไม่ตรง = ส่ง 3 คำตอบ
+    (prompt สั้น ไม่แนบ doc) ให้โมเดลตัดสินเสียงข้างมาก. คืนคำตอบใหม่ หรือ None = คงคำตอบแรก"""
+    base = messages[:-1]  # ตัด assistant คำตอบแรกออก ให้ถามซ้ำจาก state เดิม
+    opts = longdoc_options(base)
+    if backend.num_ctx:
+        opts["num_ctx"] = backend.num_ctx  # ต้องเท่าเดิม ไม่งั้น Ollama reload โมเดล
+    answers = [first]
+    for i in range(2, VOTE_ROUNDS + 1):
+        if intr and intr.stopped():
+            return None
+        console.print(f"[dim]🗳 เช็คความนิ่ง รอบ {i}/{VOTE_ROUNDS}...[/]")
+        try:
+            r = httpx.post(f"{backend.api_base}/api/chat",
+                           json={"model": backend.model, "messages": base,
+                                 "stream": False, "options": opts}, timeout=None)
+            ans = strip_special(r.json().get("message", {}).get("content", ""))
+            if ans.strip():
+                answers.append(ans)
+        except Exception:
+            return None  # vote ล่ม → ใช้คำตอบแรกตามเดิม
+    if len(answers) < 2:
+        return None
+    norm = {" ".join(a.split()) for a in answers}
+    if len(norm) == 1:
+        console.print(f"[dim]🗳 {len(answers)}/{VOTE_ROUNDS} รอบตอบตรงกัน[/]")
+        return None
+    q = next((str(m.get("content") or "") for m in reversed(base) if m.get("role") == "user"), "")[-1500:]
+    arb = ("ส่วนท้ายของคำถาม:\n" + q + "\n\nคำตอบจากการถามคำถามเดียวกัน "
+           + f"{len(answers)} รอบ (โมเดลเดียวกัน คำตอบไม่ตรงกัน):\n"
+           + "\n\n".join(f"--- คำตอบที่ {i+1} ---\n{a}" for i, a in enumerate(answers))
+           + "\n\nจงเลือกคำตอบสุดท้ายที่น่าเชื่อถือที่สุด: ยึดเสียงข้างมาก "
+             "ถ้าไม่มีเสียงข้างมากให้ยึดตัวที่เหตุผลภายในสอดคล้องที่สุด "
+             "ตอบเป็นคำตอบสุดท้ายอย่างเดียว ไม่ต้องอธิบายการเลือก")
+    try:
+        r = httpx.post(f"{backend.api_base}/api/chat",
+                       json={"model": backend.model,
+                             "messages": [{"role": "user", "content": arb}],
+                             "stream": False, "options": opts}, timeout=None)
+        final = strip_special(r.json().get("message", {}).get("content", ""))
+    except Exception:
+        return None
+    if not final.strip():
+        return None
+    console.print(Panel(Markdown(final), title=f"🗳 consensus จาก {len(answers)} รอบ",
+                        border_style=THEME["border"], title_align="left"))
+    return final
 
 
 def apply_theme(name: str) -> None:
@@ -1491,6 +1544,12 @@ class LocalBackend:
             messages.append(assistant)
 
             if not calls:
+                # turn ถาม-ตอบล้วน (ไม่มี tool) บนเอกสารยาว → vote หา consensus กันคำตอบไม่นิ่ง
+                if (rounds == 1 and VOTE_ON and content.strip()
+                        and longdoc_options(messages) and not (intr and intr.stopped())):
+                    final = vote_consensus(self, messages, strip_special(content), intr)
+                    if final is not None:
+                        messages[-1]["content"] = final  # turn ต่อไปต่อยอดจาก consensus
                 return
 
             sig = "|".join(f"{c['name']}:{json.dumps(c['args'], sort_keys=True, default=str)}" for c in calls)
@@ -1687,6 +1746,7 @@ SLASH_COMMANDS = {
     "/status": "สรุปสถานะ session (model, tokens, git, ฯลฯ)",
     "/statusline": "เปิด/ปิด status line ที่ก้นกล่องพิมพ์",
     "/think": "เปิด/ปิดให้โมเดล local คิดก่อนตอบ (ช้าลงแต่ฉลาดขึ้น)",
+    "/vote": "เปิด/ปิด vote 3 รอบบนเอกสารยาว (กันคำตอบไม่นิ่งของโมเดล local)",
     "/update": "อัปเดต BOYSER AI เป็นเวอร์ชันล่าสุดจาก GitHub",
     "/yolo": "เปิด/ปิดโหมดไม่ถามยืนยัน",
     "/exit": "ออกจากโปรแกรม",
@@ -1860,8 +1920,9 @@ def main() -> None:
             cfg = setup_wizard()
 
     apply_theme(cfg.get("theme", "ฟ้า"))
-    global THINK_ON
+    global THINK_ON, VOTE_ON
     THINK_ON = cfg.get("think", False)
+    VOTE_ON = cfg.get("vote", True)
 
     global SYSTEM
     SYSTEM, loaded = build_system(BASE_SYSTEM)
@@ -1968,6 +2029,13 @@ def main() -> None:
                 console.print(f"[yellow]think: เปิดแล้ว แต่ {backend.name} ไม่รองรับ thinking — ลองโมเดลอื่น เช่น gemma/glm[/]")
             else:
                 console.print(f"[{THEME['accent'] if THINK_ON else 'dim'}]think mode: {'เปิด — โมเดลจะคิดก่อนตอบ' if THINK_ON else 'ปิด'}[/]")
+            continue
+        if user == "/vote":
+            VOTE_ON = not VOTE_ON
+            cfg["vote"] = VOTE_ON
+            save_config(cfg)
+            console.print(f"[{THEME['accent'] if VOTE_ON else 'dim'}]vote mode: "
+                          f"{'เปิด — เอกสารยาวจะถามซ้ำ 3 รอบหา consensus' if VOTE_ON else 'ปิด'}[/]")
             continue
         if user == "/update":
             import shutil

@@ -170,7 +170,8 @@ def vote_consensus(backend, messages, first: str, intr=None) -> str | None:
                            json={"model": backend.model, "messages": base,
                                  "stream": False, "options": opts}, timeout=None)
             ans = strip_special(r.json().get("message", {}).get("content", ""))
-            if ans.strip():
+            # รอบซ้ำอาจขอเรียก tool แทนการตอบ (history มี tool round) → ข้าม ไม่นับเป็นคำตอบ
+            if ans.strip() and not looks_toolish(ans):
                 answers.append(ans)
         except Exception:
             return None  # vote ล่ม → ใช้คำตอบแรกตามเดิม
@@ -1544,8 +1545,9 @@ class LocalBackend:
             messages.append(assistant)
 
             if not calls:
-                # turn ถาม-ตอบล้วน (ไม่มี tool) บนเอกสารยาว → vote หา consensus กันคำตอบไม่นิ่ง
-                if (rounds == 1 and VOTE_ON and content.strip()
+                # รอบที่ตอบจริง (ไม่มี tool call — จะรอบแรกหรือหลัง tool ก็ได้) บนเอกสารยาว
+                # → vote หา consensus กันคำตอบไม่นิ่ง
+                if (VOTE_ON and content.strip()
                         and longdoc_options(messages) and not (intr and intr.stopped())):
                     final = vote_consensus(self, messages, strip_special(content), intr)
                     if final is not None:

@@ -509,8 +509,11 @@ def list_ollama_models(base_url: str, api_key: str = "") -> list[str]:
         return []
 
 
-def menu_select(title: str, choices: list[tuple[str, str]]) -> str | None:
-    """เมนูเลือกด้วยลูกศร (questionary) — ESC = ย้อนกลับ (คืน None) · ไม่มี TTY ใช้พิมพ์เลขแทน"""
+def menu_select(title: str, choices: list[tuple[str, str]], default: str | None = None) -> str | None:
+    """เมนูเลือกด้วยลูกศร (questionary) — ESC = ย้อนกลับ (คืน None) · ไม่มี TTY ใช้พิมพ์เลขแทน
+    default = label ที่ให้ cursor ไปรออยู่ (ไม่อยู่ในตัวเลือกก็เริ่มบนสุดตามปกติ)"""
+    if default is not None and not any(label == default for label, _ in choices):
+        default = None
     if sys.stdin.isatty():
         import questionary
         from prompt_toolkit.keys import Keys
@@ -519,7 +522,7 @@ def menu_select(title: str, choices: list[tuple[str, str]]) -> str | None:
             questionary.Choice(title=f"{label}  {desc}" if desc else label, value=label)
             for label, desc in choices
         ]
-        q = questionary.select(title, choices=q_choices)
+        q = questionary.select(title, choices=q_choices, default=default)
         q.application.ttimeoutlen = 0.09  # ESC เดี่ยวตอบไว (default 0.5 วิ หน่วงเกิน)
 
         @q.application.key_bindings.add(Keys.Escape, eager=True)
@@ -601,13 +604,15 @@ def setup_wizard() -> dict | None:
         border_style="bright_blue",
     ))
 
+    old = load_config() or {}  # ค่าเดิมเป็น default ทุกช่อง — แก้เฉพาะที่อยากเปลี่ยน ไม่ต้องพิมพ์ใหม่หมด
+    old_local = old if old.get("backend") == "local" else {}
     while True:
         backend = menu_select("เลือก backend:", [
             ("Claude API", "Claude ของ Anthropic — API key หรือ login"),
             ("Cloud API", "OpenRouter / Groq / DeepSeek / OpenAI / Gemini ฯลฯ (ใส่ key)"),
             ("Ollama", "โมเดล local ฟรี — ใช้เครื่องตัวเอง"),
             ("llama.cpp", "llama-server แบบ OpenAI-compatible"),
-        ])
+        ], default="Claude API" if old.get("backend") == "claude" else None)
         if backend is None:  # ESC ที่เมนูแรก = ยกเลิก wizard
             if load_config():
                 console.print("[dim]ยกเลิก — ใช้ค่าเดิม[/]")
@@ -616,7 +621,8 @@ def setup_wizard() -> dict | None:
             continue
 
         if backend == "Claude API":
-            model = menu_select("เลือกโมเดล:", CLAUDE_MODELS)
+            model = menu_select("เลือกโมเดล:", CLAUDE_MODELS,
+                                default=old.get("model") if old.get("backend") == "claude" else None)
             if model is None:
                 continue
             auth = menu_select("วิธียืนยันตัวตน:", [
@@ -641,16 +647,20 @@ def setup_wizard() -> dict | None:
             prov = menu_select("เลือกผู้ให้บริการ:", choices)
             if prov is None:
                 continue
-            base = CLOUD_PROVIDERS.get(prov) or ask_text("base_url (OpenAI-compatible):", default="https://")
-            key = ask_text(f"วาง API key ของ {prov}:", password=True)
+            base = CLOUD_PROVIDERS.get(prov) or ask_text("base_url (OpenAI-compatible):",
+                                                         default=old_local.get("base_url") or "https://")
+            same_prov = base == old_local.get("base_url")  # provider เดิม → key/model เดิมเป็น default
+            key = ask_text(f"วาง API key ของ {prov}{' (Enter = ใช้ key เดิม)' if same_prov and old_local.get('api_key') else ''}:",
+                           password=True)
+            key = key or (old_local.get("api_key", "") if same_prov else "")
             eg = {"OpenRouter": "anthropic/claude-sonnet-4.6", "Groq": "llama-3.3-70b-versatile",
                   "DeepSeek": "deepseek-chat", "OpenAI": "gpt-4o", "Gemini": "gemini-2.0-flash"}.get(prov, "ชื่อโมเดล")
-            model = ask_text(f"ชื่อโมเดล (เช่น {eg}):", default=eg)
+            model = ask_text(f"ชื่อโมเดล (เช่น {eg}):", default=(old_local.get("model") if same_prov else "") or eg)
             cfg = {"backend": "local", "base_url": base, "model": model, "api_key": key}
 
         elif backend == "Ollama":
             url = ask_text("Ollama อยู่ที่ไหน (Enter = เครื่องนี้ / ใส่ IP เครื่องอื่นในวง LAN เช่น 192.168.1.10):",
-                           default=OLLAMA_URL)
+                           default=old_local.get("base_url") or OLLAMA_URL)
             # ใส่แค่ IP/hostname ได้ — เติม scheme/port//v1 ให้เอง
             if "://" not in url:
                 url = "http://" + url
@@ -660,30 +670,34 @@ def setup_wizard() -> dict | None:
             if not url.rstrip("/").endswith("/v1"):
                 url = url.rstrip("/") + "/v1"
             # ต่อผ่าน auth proxy/โดเมน (เช่น Cloudflare Tunnel หน้า Ollama) → ใส่ key; LAN เปล่าๆ Enter ข้าม
-            key = ask_text("API key (ถ้าต่อผ่าน proxy/โดเมนที่ล็อก key — Enter = ไม่มี):", password=True)
+            key = ask_text("API key (Enter = ใช้ key เดิม):" if old_local.get("api_key")
+                           else "API key (ถ้าต่อผ่าน proxy/โดเมนที่ล็อก key — Enter = ไม่มี):", password=True)
+            key = key or old_local.get("api_key", "")
             models = list_ollama_models(url, key)
             if models:
-                model = menu_select("เลือกโมเดล (จาก ollama list):", [(m, "") for m in models])
+                model = menu_select("เลือกโมเดล (จาก ollama list):", [(m, "") for m in models],
+                                    default=old_local.get("model"))
                 if model is None:
                     continue
             else:
                 console.print(f"[yellow]ต่อ Ollama ที่ {url} ไม่ได้ — พิมพ์ชื่อโมเดลเอง[/]")
-                model = ask_text("ชื่อโมเดล:", default="qwen3-coder-tools")
-            cfg = {"backend": "local", "base_url": url, "model": model, "num_ctx": ask_ctx()}
+                model = ask_text("ชื่อโมเดล:", default=old_local.get("model") or "qwen3-coder-tools")
+            cfg = {"backend": "local", "base_url": url, "model": model,
+                   "num_ctx": ask_ctx(old_local.get("num_ctx") or 16384)}
             if key:
                 cfg["api_key"] = key
 
         else:  # llama.cpp
-            url = ask_text("URL ของ llama-server:", default=LLAMACPP_URL)
-            model = ask_text("ชื่อโมเดล (llama.cpp ใส่อะไรก็ได้):", default="default")
+            url = ask_text("URL ของ llama-server:", default=old_local.get("base_url") or LLAMACPP_URL)
+            model = ask_text("ชื่อโมเดล (llama.cpp ใส่อะไรก็ได้):", default=old_local.get("model") or "default")
             console.print("[dim]หมายเหตุ: llama.cpp กำหนด ctx ตอนรัน server (-c) เป็นหลัก ค่านี้ส่งไปเผื่อรองรับ[/]")
-            cfg = {"backend": "local", "base_url": url, "model": model, "num_ctx": ask_ctx()}
+            cfg = {"backend": "local", "base_url": url, "model": model,
+                   "num_ctx": ask_ctx(old_local.get("num_ctx") or 16384)}
 
-        theme = menu_select("เลือกธีมสี:", [(n, "") for n in THEMES])
+        theme = menu_select("เลือกธีมสี:", [(n, "") for n in THEMES], default=old.get("theme"))
         if theme is None:
             continue
         cfg["theme"] = theme
-        old = load_config() or {}
         for k in ("think", "statusline"):  # ค่าที่ wizard ไม่ได้ถาม — คงไว้จาก config เดิม
             if k in old:
                 cfg[k] = old[k]

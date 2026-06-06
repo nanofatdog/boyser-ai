@@ -813,6 +813,22 @@ def git_branch() -> str:
         return ""
 
 
+def app_version() -> str:
+    """เวอร์ชันจาก git ของ repo เอง (ไม่ต้อง bump เลขมือ — /update แล้วเลขขยับเอง):
+    v<จำนวน commit> (<hash> · <วันที่>) เช่น v42 (1542f99 · 2026-06-06); ไม่ใช่ git → ว่าง"""
+    try:
+        n = subprocess.run(["git", "-C", REPO_DIR, "rev-list", "--count", "HEAD"],
+                           capture_output=True, text=True, timeout=3).stdout.strip()
+        info = subprocess.run(["git", "-C", REPO_DIR, "log", "-1", "--format=%h %cs"],
+                              capture_output=True, text=True, timeout=3).stdout.strip()
+        if n and info and len(info.split()) == 2:
+            h, d = info.split()
+            return f"v{n} ({h} · {d})"
+    except Exception:
+        pass
+    return ""
+
+
 def parse_reset_time(reset_str: str) -> str:
     if not reset_str:
         return ""
@@ -1870,6 +1886,9 @@ def _fmt_dur(sec: float) -> str:
 def print_status(backend, cfg: dict, loaded: list) -> None:
     a = THEME["accent"]
     t = Table(show_header=False, box=None, padding=(0, 2))
+    ver = app_version()
+    if ver:
+        t.add_row("version", ver)
     t.add_row("model", f"[bold {a}]{backend.name}[/]")
     ctx = f"  · ctx {backend.num_ctx}" if getattr(backend, "num_ctx", None) else ""
     t.add_row("backend", cfg["backend"] + ctx)
@@ -1945,6 +1964,9 @@ def main() -> None:
             head = Align.center(Text("✻ BOYSER AI", style=f"bold {accent}"))
         details = Text()
         rows = [("model", backend.name), ("cwd", WORKDIR)]
+        ver = app_version()
+        if ver:
+            rows.insert(0, ("version", ver))
         if loaded:
             rows.append(("loaded", ", ".join(loaded)))
         for k, v in rows:

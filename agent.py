@@ -509,17 +509,27 @@ def list_ollama_models(base_url: str, api_key: str = "") -> list[str]:
         return []
 
 
-def menu_select(title: str, choices: list[tuple[str, str]]) -> str:
-    """เมนูเลือกด้วยลูกศร (questionary) — ถ้าไม่มี TTY ใช้พิมพ์เลขแทน"""
+def menu_select(title: str, choices: list[tuple[str, str]]) -> str | None:
+    """เมนูเลือกด้วยลูกศร (questionary) — ESC = ย้อนกลับ (คืน None) · ไม่มี TTY ใช้พิมพ์เลขแทน"""
     if sys.stdin.isatty():
         import questionary
+        from prompt_toolkit.keys import Keys
 
         q_choices = [
             questionary.Choice(title=f"{label}  {desc}" if desc else label, value=label)
             for label, desc in choices
         ]
-        ans = questionary.select(title, choices=q_choices).ask()
-        if ans is None:
+        q = questionary.select(title, choices=q_choices)
+        q.application.ttimeoutlen = 0.09  # ESC เดี่ยวตอบไว (default 0.5 วิ หน่วงเกิน)
+
+        @q.application.key_bindings.add(Keys.Escape, eager=True)
+        def _(event):
+            event.app.exit(result="__ESC__")
+
+        ans = q.ask()
+        if ans == "__ESC__":
+            return None
+        if ans is None:  # Ctrl+C
             sys.exit(0)
         return ans
     console.print(f"\n[bold]{title}[/]")
@@ -583,84 +593,103 @@ def ant_oauth_login() -> None:
         console.print(f"[red]login ไม่สำเร็จ: {e} — ลอง `! ant auth login` เองได้[/]")
 
 
-def setup_wizard() -> dict:
+def setup_wizard() -> dict | None:
+    """เมนูตั้งค่า — ESC ในเมนูลึก = ย้อนกลับไปเลือก backend, ESC ที่เมนูแรก = ยกเลิก (คืน None ถ้ามี config เดิม)"""
     console.print(Panel.fit(
         "[bold bright_blue]✻ BOYSER AI[/] — ตั้งค่าครั้งแรก\n"
-        "[dim]เลือกว่าจะใช้สมองจากที่ไหน (เปลี่ยนทีหลังได้ด้วย /model)[/]",
+        "[dim]เลือกว่าจะใช้สมองจากที่ไหน (เปลี่ยนทีหลังได้ด้วย /model · ESC ย้อนกลับ)[/]",
         border_style="bright_blue",
     ))
 
-    backend = menu_select("เลือก backend:", [
-        ("Claude API", "Claude ของ Anthropic — API key หรือ login"),
-        ("Cloud API", "OpenRouter / Groq / DeepSeek / OpenAI / Gemini ฯลฯ (ใส่ key)"),
-        ("Ollama", "โมเดล local ฟรี — ใช้เครื่องตัวเอง"),
-        ("llama.cpp", "llama-server แบบ OpenAI-compatible"),
-    ])
-
-    if backend == "Claude API":
-        model = menu_select("เลือกโมเดล:", CLAUDE_MODELS)
-        auth = menu_select("วิธียืนยันตัวตน:", [
-            ("API key", "วาง sk-ant-... (จ่ายตามใช้)"),
-            ("OAuth login", "ไม่ต้องวาง key — ต้อง `ant auth login` ก่อน (ยังเป็น API auth ไม่ใช่ subscription)"),
+    while True:
+        backend = menu_select("เลือก backend:", [
+            ("Claude API", "Claude ของ Anthropic — API key หรือ login"),
+            ("Cloud API", "OpenRouter / Groq / DeepSeek / OpenAI / Gemini ฯลฯ (ใส่ key)"),
+            ("Ollama", "โมเดล local ฟรี — ใช้เครื่องตัวเอง"),
+            ("llama.cpp", "llama-server แบบ OpenAI-compatible"),
         ])
-        if auth == "API key":
-            key = os.environ.get("ANTHROPIC_API_KEY", "")
-            if key:
-                console.print("[green]เจอ ANTHROPIC_API_KEY ใน environment แล้ว จะใช้ตัวนั้น[/]")
+        if backend is None:  # ESC ที่เมนูแรก = ยกเลิก wizard
+            if load_config():
+                console.print("[dim]ยกเลิก — ใช้ค่าเดิม[/]")
+                return None
+            console.print("[yellow]ยังไม่เคยตั้งค่า — ต้องเลือก backend ก่อน (Ctrl+C = ออกโปรแกรม)[/]")
+            continue
+
+        if backend == "Claude API":
+            model = menu_select("เลือกโมเดล:", CLAUDE_MODELS)
+            if model is None:
+                continue
+            auth = menu_select("วิธียืนยันตัวตน:", [
+                ("API key", "วาง sk-ant-... (จ่ายตามใช้)"),
+                ("OAuth login", "ไม่ต้องวาง key — ต้อง `ant auth login` ก่อน (ยังเป็น API auth ไม่ใช่ subscription)"),
+            ])
+            if auth is None:
+                continue
+            if auth == "API key":
+                key = os.environ.get("ANTHROPIC_API_KEY", "")
+                if key:
+                    console.print("[green]เจอ ANTHROPIC_API_KEY ใน environment แล้ว จะใช้ตัวนั้น[/]")
+                else:
+                    key = ask_text("วาง API key (sk-ant-... จาก platform.claude.com):", password=True)
+                cfg = {"backend": "claude", "model": model, "api_key": key}
             else:
-                key = ask_text("วาง API key (sk-ant-... จาก platform.claude.com):", password=True)
-            cfg = {"backend": "claude", "model": model, "api_key": key}
-        else:
-            ant_oauth_login()  # เช็ค+login ให้ตรงนี้เลย (ครั้งแรก) — รอบหลัง ant จำไว้
-            cfg = {"backend": "claude", "model": model}  # ไม่มี key → SDK ใช้ profile/env
+                ant_oauth_login()  # เช็ค+login ให้ตรงนี้เลย (ครั้งแรก) — รอบหลัง ant จำไว้
+                cfg = {"backend": "claude", "model": model}  # ไม่มี key → SDK ใช้ profile/env
 
-    elif backend == "Cloud API":
-        choices = [(n, u) for n, u in CLOUD_PROVIDERS.items()] + [("กำหนดเอง", "ใส่ base_url เอง")]
-        prov = menu_select("เลือกผู้ให้บริการ:", choices)
-        base = CLOUD_PROVIDERS.get(prov) or ask_text("base_url (OpenAI-compatible):", default="https://")
-        key = ask_text(f"วาง API key ของ {prov}:", password=True)
-        eg = {"OpenRouter": "anthropic/claude-sonnet-4.6", "Groq": "llama-3.3-70b-versatile",
-              "DeepSeek": "deepseek-chat", "OpenAI": "gpt-4o", "Gemini": "gemini-2.0-flash"}.get(prov, "ชื่อโมเดล")
-        model = ask_text(f"ชื่อโมเดล (เช่น {eg}):", default=eg)
-        cfg = {"backend": "local", "base_url": base, "model": model, "api_key": key}
+        elif backend == "Cloud API":
+            choices = [(n, u) for n, u in CLOUD_PROVIDERS.items()] + [("กำหนดเอง", "ใส่ base_url เอง")]
+            prov = menu_select("เลือกผู้ให้บริการ:", choices)
+            if prov is None:
+                continue
+            base = CLOUD_PROVIDERS.get(prov) or ask_text("base_url (OpenAI-compatible):", default="https://")
+            key = ask_text(f"วาง API key ของ {prov}:", password=True)
+            eg = {"OpenRouter": "anthropic/claude-sonnet-4.6", "Groq": "llama-3.3-70b-versatile",
+                  "DeepSeek": "deepseek-chat", "OpenAI": "gpt-4o", "Gemini": "gemini-2.0-flash"}.get(prov, "ชื่อโมเดล")
+            model = ask_text(f"ชื่อโมเดล (เช่น {eg}):", default=eg)
+            cfg = {"backend": "local", "base_url": base, "model": model, "api_key": key}
 
-    elif backend == "Ollama":
-        url = ask_text("Ollama อยู่ที่ไหน (Enter = เครื่องนี้ / ใส่ IP เครื่องอื่นในวง LAN เช่น 192.168.1.10):",
-                       default=OLLAMA_URL)
-        # ใส่แค่ IP/hostname ได้ — เติม scheme/port//v1 ให้เอง
-        if "://" not in url:
-            url = "http://" + url
-        # เติม :11434 เฉพาะ http (https ผ่านโดเมน/Tunnel ใช้ 443 อยู่แล้ว ห้ามเติมทับ)
-        if url.startswith("http://") and ":" not in url.split("://", 1)[1]:
-            url += ":11434"
-        if not url.rstrip("/").endswith("/v1"):
-            url = url.rstrip("/") + "/v1"
-        # ต่อผ่าน auth proxy/โดเมน (เช่น Cloudflare Tunnel หน้า Ollama) → ใส่ key; LAN เปล่าๆ Enter ข้าม
-        key = ask_text("API key (ถ้าต่อผ่าน proxy/โดเมนที่ล็อก key — Enter = ไม่มี):", password=True)
-        models = list_ollama_models(url, key)
-        if models:
-            model = menu_select("เลือกโมเดล (จาก ollama list):", [(m, "") for m in models])
-        else:
-            console.print(f"[yellow]ต่อ Ollama ที่ {url} ไม่ได้ — พิมพ์ชื่อโมเดลเอง[/]")
-            model = ask_text("ชื่อโมเดล:", default="qwen3-coder-tools")
-        cfg = {"backend": "local", "base_url": url, "model": model, "num_ctx": ask_ctx()}
-        if key:
-            cfg["api_key"] = key
+        elif backend == "Ollama":
+            url = ask_text("Ollama อยู่ที่ไหน (Enter = เครื่องนี้ / ใส่ IP เครื่องอื่นในวง LAN เช่น 192.168.1.10):",
+                           default=OLLAMA_URL)
+            # ใส่แค่ IP/hostname ได้ — เติม scheme/port//v1 ให้เอง
+            if "://" not in url:
+                url = "http://" + url
+            # เติม :11434 เฉพาะ http (https ผ่านโดเมน/Tunnel ใช้ 443 อยู่แล้ว ห้ามเติมทับ)
+            if url.startswith("http://") and ":" not in url.split("://", 1)[1]:
+                url += ":11434"
+            if not url.rstrip("/").endswith("/v1"):
+                url = url.rstrip("/") + "/v1"
+            # ต่อผ่าน auth proxy/โดเมน (เช่น Cloudflare Tunnel หน้า Ollama) → ใส่ key; LAN เปล่าๆ Enter ข้าม
+            key = ask_text("API key (ถ้าต่อผ่าน proxy/โดเมนที่ล็อก key — Enter = ไม่มี):", password=True)
+            models = list_ollama_models(url, key)
+            if models:
+                model = menu_select("เลือกโมเดล (จาก ollama list):", [(m, "") for m in models])
+                if model is None:
+                    continue
+            else:
+                console.print(f"[yellow]ต่อ Ollama ที่ {url} ไม่ได้ — พิมพ์ชื่อโมเดลเอง[/]")
+                model = ask_text("ชื่อโมเดล:", default="qwen3-coder-tools")
+            cfg = {"backend": "local", "base_url": url, "model": model, "num_ctx": ask_ctx()}
+            if key:
+                cfg["api_key"] = key
 
-    else:  # llama.cpp
-        url = ask_text("URL ของ llama-server:", default=LLAMACPP_URL)
-        model = ask_text("ชื่อโมเดล (llama.cpp ใส่อะไรก็ได้):", default="default")
-        console.print("[dim]หมายเหตุ: llama.cpp กำหนด ctx ตอนรัน server (-c) เป็นหลัก ค่านี้ส่งไปเผื่อรองรับ[/]")
-        cfg = {"backend": "local", "base_url": url, "model": model, "num_ctx": ask_ctx()}
+        else:  # llama.cpp
+            url = ask_text("URL ของ llama-server:", default=LLAMACPP_URL)
+            model = ask_text("ชื่อโมเดล (llama.cpp ใส่อะไรก็ได้):", default="default")
+            console.print("[dim]หมายเหตุ: llama.cpp กำหนด ctx ตอนรัน server (-c) เป็นหลัก ค่านี้ส่งไปเผื่อรองรับ[/]")
+            cfg = {"backend": "local", "base_url": url, "model": model, "num_ctx": ask_ctx()}
 
-    cfg["theme"] = menu_select("เลือกธีมสี:", [(n, "") for n in THEMES])
-    old = load_config() or {}
-    for k in ("think", "statusline"):  # ค่าที่ wizard ไม่ได้ถาม — คงไว้จาก config เดิม
-        if k in old:
-            cfg[k] = old[k]
-    save_config(cfg)
-    console.print(f"[green]✓ บันทึกที่ {CONFIG_PATH}[/]\n")
-    return cfg
+        theme = menu_select("เลือกธีมสี:", [(n, "") for n in THEMES])
+        if theme is None:
+            continue
+        cfg["theme"] = theme
+        old = load_config() or {}
+        for k in ("think", "statusline"):  # ค่าที่ wizard ไม่ได้ถาม — คงไว้จาก config เดิม
+            if k in old:
+                cfg[k] = old[k]
+        save_config(cfg)
+        console.print(f"[green]✓ บันทึกที่ {CONFIG_PATH}[/]\n")
+        return cfg
 
 
 # ---------- ui helpers ----------
@@ -2006,7 +2035,7 @@ def main() -> None:
     else:
         cfg = load_config()
         if cfg is None or args.setup:
-            cfg = setup_wizard()
+            cfg = setup_wizard() or cfg  # None = ESC ยกเลิก (มีได้เฉพาะตอนมี config เดิม) → ใช้ค่าเดิม
 
     apply_theme(cfg.get("theme", "ฟ้า"))
     global THINK_ON, VOTE_ON
@@ -2074,6 +2103,8 @@ def main() -> None:
             continue
         if user == "/theme":
             name = menu_select("เลือกธีมสี:", [(n, "ปัจจุบัน" if n == THEME["name"] else "") for n in THEMES])
+            if name is None:  # ESC ยกเลิก
+                continue
             apply_theme(name)
             cfg["theme"] = name
             save_config(cfg)
@@ -2224,7 +2255,10 @@ def main() -> None:
             console.print(f"[{'red' if YOLO else 'green'}]YOLO mode: {'ON — ไม่ถามยืนยันแล้ว' if YOLO else 'OFF'}[/]")
             continue
         if user == "/model":
-            cfg = setup_wizard()
+            new_cfg = setup_wizard()
+            if new_cfg is None:  # ESC ยกเลิก — ไม่แตะ backend/ประวัติ
+                continue
+            cfg = new_cfg
             apply_theme(cfg.get("theme", THEME["name"]))
             backend = make_backend(cfg)
             _status_ctx["backend"] = backend

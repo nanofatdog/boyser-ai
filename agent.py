@@ -630,7 +630,8 @@ def setup_wizard() -> dict:
         # ใส่แค่ IP/hostname ได้ — เติม scheme/port//v1 ให้เอง
         if "://" not in url:
             url = "http://" + url
-        if ":" not in url.split("://", 1)[1]:
+        # เติม :11434 เฉพาะ http (https ผ่านโดเมน/Tunnel ใช้ 443 อยู่แล้ว ห้ามเติมทับ)
+        if url.startswith("http://") and ":" not in url.split("://", 1)[1]:
             url += ":11434"
         if not url.rstrip("/").endswith("/v1"):
             url = url.rstrip("/") + "/v1"

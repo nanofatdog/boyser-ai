@@ -1030,14 +1030,15 @@ def subagent_tool(goal: str, context: str = "") -> str:
     try:
         from boyser.subagent import SubAgentClient
         client = SubAgentClient()
-        result = client.spawn({"goal": goal, "context": context})
-        if "error" in result:
-            return f"Error: {result['error']}"
-        session_id = result.get("id", "unknown")
+        session = client.spawn(goal=goal, context=context or None)
+        session_id = session.id
+        if session.status == "failed":
+            return f"Error: {session.summary}"
         final = client.wait(session_id, timeout=300)
-        if final:
-            return f"Subagent [{session_id}]: {final.get('summary', final.get('output', 'done'))}"
-        return f"Subagent [{session_id}]: started (check status later)"
+        if final.status == "failed":
+            return f"Subagent [{session_id}] failed: {final.summary}"
+        summary = final.summary or "\n".join(final._stdout_lines[-5:]) or "done"
+        return f"Subagent [{session_id}]: {summary}"
     except Exception as e:
         return f"Error spawning subagent: {e}"
 

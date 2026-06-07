@@ -173,8 +173,7 @@ def run_goal(goal: str, context: str = "", max_steps: int = 10) -> dict:
     """Execute a goal by iteratively choosing and running tools."""
     tools_called = []
     output_parts = []
-    workdir = context.strip() or os.getcwd()
-    os.chdir(workdir)
+    workdir = os.getcwd()
 
     # Simple prompt for the simulated "thinking"
     prompt = (
@@ -187,6 +186,8 @@ def run_goal(goal: str, context: str = "", max_steps: int = 10) -> dict:
         '  {{"done": true, "summary": "..."}}\n'
         "---\n".format(goal, ", ".join(sorted(_TOOLS.keys())))
     )
+    if context.strip():
+        prompt += "\nContext:\n{}\n".format(context.strip())
 
     lines = prompt.split("\n")
     output_parts.append("Goal: {}".format(goal))
@@ -334,7 +335,7 @@ class SubAgentClient:
             )
 
         session = self.manager.create_session(goal)
-        context = context or os.getcwd()
+        context = context or ""
 
         if self.mode == "A":
             self._spawn_mode_a(session, context, toolsets)
@@ -437,7 +438,7 @@ class SubAgentClient:
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
-            cwd=context if os.path.isdir(context) else None,
+            cwd=os.getcwd(),
         )
         session.process = proc
 

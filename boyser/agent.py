@@ -217,7 +217,11 @@ def menu_select(title: str, choices: list[tuple[str, str]], default: str | None 
     for i, (label, desc) in enumerate(choices, 1):
         console.print(f"  {i}. {label}  [dim]{desc}[/]")
     while True:
-        ans = console.input("เลือกหมายเลข: ").strip()
+        try:
+            ans = console.input("เลือกหมายเลข: ").strip()
+        except (EOFError, KeyboardInterrupt, ValueError):
+            console.print()
+            return None
         if ans.isdigit() and 1 <= int(ans) <= len(choices):
             return choices[int(ans) - 1][0]
 
@@ -231,7 +235,11 @@ def ask_text(title: str, default: str = "", password: bool = False) -> str:
         if ans is None:
             sys.exit(0)
         return ans.strip() or default
-    return console.input(f"{title} ").strip() or default
+    try:
+        return console.input(f"{title} ").strip() or default
+    except (EOFError, KeyboardInterrupt, ValueError):
+        console.print()
+        return default
 
 
 def ask_ctx(default: int = 16384) -> int:

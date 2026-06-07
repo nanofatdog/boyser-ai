@@ -134,14 +134,16 @@ elif [ -x "${HOME}/.local/bin/boyser-ai" ]; then
     _CMD="${HOME}/.local/bin/boyser-ai"
 fi
 
-if [ -n "$_CMD" ] && [ -t 1 ]; then
+if [ -n "$_CMD" ] && [ -t 0 ] && [ -t 1 ]; then
     echo "  ${CYAN}→ Starting BOYSER AI...${NC}"
     echo ""
     exec "$_CMD"
 elif [ -n "$_CMD" ]; then
     echo "  Run:  ${CYAN}boyser-ai${NC}"
     echo ""
-    exec "$_CMD"
+    echo "  ${YELLOW}Tip:${NC} Run in an interactive terminal for first-time setup:"
+    echo "    ${CYAN}boyser-ai${NC}"
+    echo ""
 else
     echo "  Run:  ${CYAN}${HOME}/.local/bin/boyser-ai${NC}"
     echo ""

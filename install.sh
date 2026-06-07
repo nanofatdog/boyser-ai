@@ -94,16 +94,16 @@ echo "     ${COUNT} skills installed (skipped existing)"
 echo "  → Creating launcher..."
 LAUNCHER=""
 for _dir in /usr/local/bin "${HOME}/.local/bin"; do
-    if [ -d "$_dir" ] || mkdir -p "$_dir" 2>/dev/null; then
-        _launcher="${_dir}/boyser-ai"
-        cat > "$_launcher" <<LAUNCHER_EOF
+    [ -d "$_dir" ] || mkdir -p "$_dir" 2>/dev/null || continue
+    [ -w "$_dir" ] || continue   # ข้ามโฟลเดอร์ที่เขียนไม่ได้ (เช่น /usr/local/bin ตอนไม่ใช่ root)
+    _launcher="${_dir}/boyser-ai"
+    cat > "$_launcher" <<LAUNCHER_EOF
 #!/bin/sh
 exec "$DIR/.venv/bin/python" "$DIR/agent.py" "\$@"
 LAUNCHER_EOF
-        chmod +x "$_launcher"
-        LAUNCHER="$_launcher"
-        break
-    fi
+    chmod +x "$_launcher"
+    LAUNCHER="$_launcher"
+    break
 done
 
 if [ -z "$LAUNCHER" ]; then

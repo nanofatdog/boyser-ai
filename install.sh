@@ -89,49 +89,71 @@ echo "     ${COUNT} skills installed (skipped existing)"
 
 # ---- Create launcher ----
 echo "  → Creating launcher..."
-LAUNCHER_DIR="${HOME}/.local/bin"
-mkdir -p "$LAUNCHER_DIR"
-
-LAUNCHER="${LAUNCHER_DIR}/boyser-ai"
-cat > "$LAUNCHER" <<LAUNCHER_EOF
+LAUNCHER=""
+for _dir in /usr/local/bin "${HOME}/.local/bin"; do
+    if [ -d "$_dir" ] || mkdir -p "$_dir" 2>/dev/null; then
+        _launcher="${_dir}/boyser-ai"
+        cat > "$_launcher" <<LAUNCHER_EOF
 #!/bin/sh
 exec "$DIR/.venv/bin/python" "$DIR/agent.py" "\$@"
 LAUNCHER_EOF
-chmod +x "$LAUNCHER"
+        chmod +x "$_launcher"
+        LAUNCHER="$_launcher"
+        break
+    fi
+done
+
+if [ -z "$LAUNCHER" ]; then
+    # Fallback: ~/.local/bin
+    mkdir -p "${HOME}/.local/bin"
+    LAUNCHER="${HOME}/.local/bin/boyser-ai"
+    cat > "$LAUNCHER" <<LAUNCHER_EOF
+#!/bin/sh
+exec "$DIR/.venv/bin/python" "$DIR/agent.py" "\$@"
+LAUNCHER_EOF
+    chmod +x "$LAUNCHER"
+fi
 
 # ---- Add PATH to shell config (persistence) ----
 echo "  → Adding to PATH in shell config..."
 _added_path=0
-for _rc in "${HOME}/.bashrc" "${HOME}/.zshrc" "${HOME}/.profile" "${HOME}/.bash_profile"; do
-    [ -f "$_rc" ] || continue
-    if grep -q '\.local/bin' "$_rc" 2>/dev/null; then
-        continue  # already in this config
-    fi
-    echo "" >> "$_rc"
-    echo "# Added by BOYSER AI installer" >> "$_rc"
-    echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$_rc"
-    _added_path=1
-done
-if [ "$_added_path" = "1" ]; then
-    echo "     ✓ Added to shell config"
-else
-    echo "     ✓ Already in PATH"
-fi
-
-# Refresh PATH for this session
-export PATH="${HOME}/.local/bin:${PATH}"
+# If launcher is in ~/.local/bin (not system-wide), add it to shell rc
+case "$LAUNCHER" in
+    *"/.local/bin/"*)
+        for _rc in "${HOME}/.bashrc" "${HOME}/.zshrc" "${HOME}/.profile" "${HOME}/.bash_profile"; do
+            [ -f "$_rc" ] || continue
+            if grep -q '\.local/bin' "$_rc" 2>/dev/null; then
+                continue
+            fi
+            echo "" >> "$_rc"
+            echo "# Added by BOYSER AI installer" >> "$_rc"
+            echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$_rc"
+            _added_path=1
+        done
+        if [ "$_added_path" = "1" ]; then
+            echo "     ✓ Added to shell config (~/.bashrc)"
+        else
+            echo "     ✓ Already in PATH"
+        fi
+        # Refresh PATH for this session
+        export PATH="${HOME}/.local/bin:${PATH}"
+        hash -r 2>/dev/null || true
+        ;;
+    *)
+        echo "     ✓ Launcher at ${LAUNCHER} (in system PATH)"
+        ;;
+esac
 
 # ---- Done ----
 echo ""
 echo "${GREEN}${BOLD}  ✓ BOYSER AI installed successfully!${NC}"
+echo "     ${YELLOW}→ ${LAUNCHER}${NC}"
 echo ""
 
 # ---- Auto-run ----
 _CMD=""
-if command -v boyser-ai >/dev/null 2>&1; then
-    _CMD="boyser-ai"
-elif [ -x "${HOME}/.local/bin/boyser-ai" ]; then
-    _CMD="${HOME}/.local/bin/boyser-ai"
+if [ -x "$LAUNCHER" ]; then
+    _CMD="$LAUNCHER"
 fi
 
 if [ -n "$_CMD" ] && [ -t 0 ] && [ -t 1 ]; then
@@ -139,16 +161,14 @@ if [ -n "$_CMD" ] && [ -t 0 ] && [ -t 1 ]; then
     echo ""
     exec "$_CMD"
 elif [ -n "$_CMD" ]; then
-    echo "  Run:  ${CYAN}~/.local/bin/boyser-ai${NC}  (หรือเปิด terminal ใหม่แล้วใช้ ${CYAN}boyser-ai${NC})"
+    echo "  Run:  ${CYAN}${_CMD}${NC}"
     echo ""
-    echo "  ${YELLOW}Tip:${NC} เปิด terminal ใหม่ หรือรันคำสั่งนี้ก่อน:"
-    echo "    ${CYAN}source ~/.bashrc && boyser-ai${NC}"
-    echo ""
-    echo "  หรือสร้าง config ล่วงหน้า:"
-    echo "    ${CYAN}~/.local/bin/boyser-ai --setup${NC}"
+    echo "  ${YELLOW}Tip:${NC} ถ้าใช้ shell นี้ต่อ เปิด terminal ใหม่ หรือ:"
+    echo "    ${CYAN}source ~/.bashrc && ${_CMD}${NC}"
     echo ""
 else
-    echo "  Run:  ${CYAN}${HOME}/.local/bin/boyser-ai${NC}"
+    echo "  ${YELLOW}⚠ Could not create launcher!${NC}"
+    echo "  Run:  ${CYAN}${DIR}/.venv/bin/python ${DIR}/agent.py${NC}"
     echo ""
 fi
 echo ""

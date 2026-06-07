@@ -19,35 +19,26 @@ from rich.table import Table
 from rich.text import Text
 
 from boyser.config import (
-    ALWAYS_ALLOW,
     BASE_SYSTEM,
-    CONFIG_DIR,
+    CLAUDE_MODELS,
+    CLOUD_PROVIDERS,
     CONFIG_PATH,
-    HISTORY_PATH,
+    LLAMACPP_URL,
     MEMORY_FILE,
+    OLLAMA_URL,
     PROJECT_FILES,
     REPO_DIR,
     SKILLS,
     SKILLS_DIRS,
-    SYSTEM,
     THEME,
     THEMES,
-    THINK_ON,
-    VOTE_ON,
     WORKDIR,
     YOLO,
     apply_theme,
+    extract_files,
     load_config,
     save_config,
-    TOOLS,
-    CLOUD_PROVIDERS,
-    CLAUDE_MODELS,
-    OLLAMA_URL,
-    LLAMACPP_URL,
-    IS_WIN,
-    GIT_BASH,
-    strip_special,
-    extract_files,
+    LOGO,
 )
 from boyser.repl import (
     make_prompt,
@@ -99,25 +90,13 @@ def discover_skills() -> dict:
     return skills
 
 
-def use_skill(name: str) -> str:
-    sk = SKILLS.get(name)
-    if not sk:
-        return f"Error: ไม่พบ skill '{name}'. ที่มี: {', '.join(SKILLS) or '(ไม่มี)'}"
-    _, body = _parse_frontmatter(sk["path"])
-    files = [fn for fn in sorted(os.listdir(sk["dir"])) if fn != "SKILL.md"]
-    extra = f"\n\n[ไฟล์ประกอบใน {sk['dir']}: {', '.join(files)}]" if files else ""
-    return body + extra
-
-
 def build_system(base: str) -> tuple[str, list[str]]:
     """ประกอบ system prompt + โหลด memory, project context, รายการ skills"""
-    global SKILLS
-    from boyser.config import SKILLS as _SKILLS_GLOBALS
+    import boyser.config as _cfg
 
     discovered = discover_skills()
-    # Update the module-level SKILLS for use_skill to find later
-    _SKILLS_GLOBALS.clear()
-    _SKILLS_GLOBALS.update(discovered)
+    _cfg.SKILLS.clear()
+    _cfg.SKILLS.update(discovered)
 
     parts = [base]
     loaded = []
@@ -423,7 +402,7 @@ def check_update_bg() -> None:
 
 def main() -> None:
     """Entry point: parse args, setup config, run REPL loop."""
-    global YOLO, THINK_ON, VOTE_ON, SYSTEM
+    import boyser.config as _cfg
 
     parser = argparse.ArgumentParser(description="BOYSER AI — mini Claude Code")
     parser.add_argument("--local", nargs="?", const=OLLAMA_URL, default=None, metavar="BASE_URL",
@@ -445,10 +424,10 @@ def main() -> None:
             cfg = setup_wizard(cfg) or cfg
 
     apply_theme(cfg.get("theme", "ฟ้า"))
-    THINK_ON = cfg.get("think", False)
-    VOTE_ON = cfg.get("vote", True)
+    _cfg.THINK_ON = cfg.get("think", False)
+    _cfg.VOTE_ON = cfg.get("vote", True)
 
-    SYSTEM, loaded = build_system(BASE_SYSTEM)
+    _cfg.SYSTEM, loaded = build_system(BASE_SYSTEM)
 
     backend = make_backend(cfg)
     messages = backend.new_messages()
@@ -548,25 +527,25 @@ def main() -> None:
                     changed = True
                     console.print("[dim]ล้าง memory แล้ว[/]")
             if changed:
-                SYSTEM, loaded = build_system(BASE_SYSTEM)
+                _cfg.SYSTEM, loaded = build_system(BASE_SYSTEM)
                 messages = backend.new_messages()
                 console.print("[dim]โหลด memory ใหม่เข้า session แล้ว (ประวัติแชตถูกล้าง)[/]")
             continue
         if user == "/think":
-            THINK_ON = not THINK_ON
-            cfg["think"] = THINK_ON
+            _cfg.THINK_ON = not _cfg.THINK_ON
+            cfg["think"] = _cfg.THINK_ON
             save_config(cfg)
-            if THINK_ON and getattr(backend, "is_ollama", False) and not backend.supports_think:
+            if _cfg.THINK_ON and getattr(backend, "is_ollama", False) and not backend.supports_think:
                 console.print(f"[yellow]think: เปิดแล้ว แต่ {backend.name} ไม่รองรับ thinking — ลองโมเดลอื่น เช่น gemma/glm[/]")
             else:
-                console.print(f"[{THEME['accent'] if THINK_ON else 'dim'}]think mode: {'เปิด — โมเดลจะคิดก่อนตอบ' if THINK_ON else 'ปิด'}[/]")
+                console.print(f"[{THEME['accent'] if _cfg.THINK_ON else 'dim'}]think mode: {'เปิด — โมเดลจะคิดก่อนตอบ' if _cfg.THINK_ON else 'ปิด'}[/]")
             continue
         if user == "/vote":
-            VOTE_ON = not VOTE_ON
-            cfg["vote"] = VOTE_ON
+            _cfg.VOTE_ON = not _cfg.VOTE_ON
+            cfg["vote"] = _cfg.VOTE_ON
             save_config(cfg)
-            console.print(f"[{THEME['accent'] if VOTE_ON else 'dim'}]vote mode: "
-                          f"{'เปิด — เอกสารยาวจะถามซ้ำ 3 รอบหา consensus' if VOTE_ON else 'ปิด'}[/]")
+            console.print(f"[{THEME['accent'] if _cfg.VOTE_ON else 'dim'}]vote mode: "
+                          f"{'เปิด — เอกสารยาวจะถามซ้ำ 3 รอบหา consensus' if _cfg.VOTE_ON else 'ปิด'}[/]")
             continue
         if user == "/update":
             if not os.path.isdir(os.path.join(REPO_DIR, ".git")):
@@ -667,6 +646,8 @@ def main() -> None:
                 continue
             cfg = new_cfg
             apply_theme(cfg.get("theme", THEME["name"]))
+            _cfg.THINK_ON = cfg.get("think", False)
+            _cfg.VOTE_ON = cfg.get("vote", True)
             backend = make_backend(cfg)
             _status_ctx["backend"] = backend
             messages = backend.new_messages()

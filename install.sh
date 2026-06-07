@@ -45,11 +45,14 @@ if [ "$SCRIPT_SRC" = "sh" ] || [ "$SCRIPT_SRC" = "bash" ] || [ ! -f "$SCRIPT_SRC
             git clone --depth 1 https://github.com/nanofatdog/boyser-ai.git "$INSTALL_DIR"
             cd "$INSTALL_DIR"
         }
+        # Re-exec local install.sh so the new code runs (script in pipe is stale)
+        exec sh "$INSTALL_DIR/install.sh"
     else
         echo "  → Cloning repository..."
         mkdir -p "$(dirname "$INSTALL_DIR")"
         git clone --depth 1 https://github.com/nanofatdog/boyser-ai.git "$INSTALL_DIR"
-        cd "$INSTALL_DIR"
+        # Re-exec local install.sh so the new code runs
+        exec sh "$INSTALL_DIR/install.sh"
     fi
     DIR="$INSTALL_DIR"
 else

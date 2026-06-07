@@ -172,6 +172,22 @@ def list_ollama_models(base_url: str, api_key: str = "") -> list[str]:
         return []
 
 
+def list_openai_models(base_url: str, api_key: str = "") -> list[str]:
+    """Scan OpenAI-compatible /v1/models endpoint → list model IDs."""
+    try:
+        hdr = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+        # Normalize: ensure /v1 suffix for the /models endpoint
+        url = base_url.rstrip("/")
+        if url.endswith("/v1"):
+            url = url + "/models"
+        else:
+            url = url + "/v1/models" if "/v1/" not in url else url + "/models"
+        r = httpx.get(url, timeout=5, headers=hdr)
+        return [m["id"] for m in r.json().get("data", [])]
+    except Exception:
+        return []
+
+
 def menu_select(title: str, choices: list[tuple[str, str]], default: str | None = None) -> str | None:
     """เมนูเลือกด้วยลูกศร (questionary) — ESC = ย้อนกลับ"""
     if default is not None and not any(label == default for label, _ in choices):
@@ -313,9 +329,18 @@ def setup_wizard(old_cfg: dict | None = None) -> dict | None:
             key = ask_text(f"วาง API key ของ {prov}{' (Enter = ใช้ key เดิม)' if same_prov and old_local.get('api_key') else ''}:",
                            password=True)
             key = key or (old_local.get("api_key", "") if same_prov else "")
-            eg = {"OpenRouter": "anthropic/claude-sonnet-4.6", "Groq": "llama-3.3-70b-versatile",
-                  "DeepSeek": "deepseek-chat", "OpenAI": "gpt-4o", "Gemini": "gemini-2.0-flash"}.get(prov, "ชื่อโมเดล")
-            model = ask_text(f"ชื่อโมเดล (เช่น {eg}):", default=(old_local.get("model") if same_prov else "") or eg)
+            # Scan models from endpoint
+            models = list_openai_models(base, key)
+            if models:
+                model = menu_select("เลือกโมเดล (จาก /v1/models):", [(m, "") for m in models],
+                                    default=old_local.get("model"))
+                if model is None:
+                    continue
+            else:
+                eg = {"OpenRouter": "anthropic/claude-sonnet-4.6", "Groq": "llama-3.3-70b-versatile",
+                      "DeepSeek": "deepseek-chat", "OpenAI": "gpt-4o", "Gemini": "gemini-2.0-flash"}.get(prov, "ชื่อโมเดล")
+                model = ask_text(f"ชื่อโมเดล (scan ไม่สำเร็จ — เช่น {eg}):",
+                                 default=(old_local.get("model") if same_prov else "") or eg)
             cfg = {"backend": "local", "base_url": base, "model": model, "api_key": key}
 
         elif backend == "Ollama":
@@ -346,7 +371,15 @@ def setup_wizard(old_cfg: dict | None = None) -> dict | None:
 
         else:  # llama.cpp
             url = ask_text("URL ของ llama-server:", default=old_local.get("base_url") or LLAMACPP_URL)
-            model = ask_text("ชื่อโมเดล (llama.cpp ใส่อะไรก็ได้):", default=old_local.get("model") or "default")
+            # Scan models from OpenAI-compatible endpoint
+            models = list_openai_models(url, "")
+            if models:
+                model = menu_select("เลือกโมเดล (จาก /v1/models):", [(m, "") for m in models],
+                                    default=old_local.get("model"))
+                if model is None:
+                    continue
+            else:
+                model = ask_text("ชื่อโมเดล (scan ไม่สำเร็จ — พิมพ์เอง):", default=old_local.get("model") or "default")
             console.print("[dim]หมายเหตุ: llama.cpp กำหนด ctx ตอนรัน server (-c) เป็นหลัก[/]")
             cfg = {"backend": "local", "base_url": url, "model": model,
                    "num_ctx": ask_ctx(old_local.get("num_ctx") or 16384)}

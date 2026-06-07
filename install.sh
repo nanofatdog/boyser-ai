@@ -99,19 +99,51 @@ exec "$DIR/.venv/bin/python" "$DIR/agent.py" "\$@"
 LAUNCHER_EOF
 chmod +x "$LAUNCHER"
 
+# ---- Add PATH to shell config (persistence) ----
+echo "  → Adding to PATH in shell config..."
+_added_path=0
+for _rc in "${HOME}/.bashrc" "${HOME}/.zshrc" "${HOME}/.profile" "${HOME}/.bash_profile"; do
+    [ -f "$_rc" ] || continue
+    if grep -q '\.local/bin' "$_rc" 2>/dev/null; then
+        continue  # already in this config
+    fi
+    echo "" >> "$_rc"
+    echo "# Added by BOYSER AI installer" >> "$_rc"
+    echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$_rc"
+    _added_path=1
+done
+if [ "$_added_path" = "1" ]; then
+    echo "     ✓ Added to shell config"
+else
+    echo "     ✓ Already in PATH"
+fi
+
+# Refresh PATH for this session
+export PATH="${HOME}/.local/bin:${PATH}"
+
 # ---- Done ----
 echo ""
 echo "${GREEN}${BOLD}  ✓ BOYSER AI installed successfully!${NC}"
 echo ""
-echo "  Run:  ${CYAN}boyser-ai${NC}"
-echo ""
-echo "  ${YELLOW}Note:${NC} If 'boyser-ai' is not found, add to PATH:"
-echo "    export PATH=\"\$HOME/.local/bin:\$PATH\""
-echo "  (Add that line to ~/.bashrc for persistence)"
-echo ""
 
-case ":$PATH:" in
-    *":${HOME}/.local/bin:"*) ;;
-    *) echo "  👆 Run the PATH command above, or:  ~/.local/bin/boyser-ai" ;;
-esac
+# ---- Auto-run ----
+_CMD=""
+if command -v boyser-ai >/dev/null 2>&1; then
+    _CMD="boyser-ai"
+elif [ -x "${HOME}/.local/bin/boyser-ai" ]; then
+    _CMD="${HOME}/.local/bin/boyser-ai"
+fi
+
+if [ -n "$_CMD" ] && [ -t 1 ]; then
+    echo "  ${CYAN}→ Starting BOYSER AI...${NC}"
+    echo ""
+    exec "$_CMD"
+elif [ -n "$_CMD" ]; then
+    echo "  Run:  ${CYAN}boyser-ai${NC}"
+    echo ""
+    exec "$_CMD"
+else
+    echo "  Run:  ${CYAN}${HOME}/.local/bin/boyser-ai${NC}"
+    echo ""
+fi
 echo ""

@@ -449,9 +449,58 @@ def check_update_bg() -> None:
 
 # ---------- main ----------
 
+def _save_session_log(messages: list, backend) -> str | None:
+    """Save conversation to ~/.config/boyser-ai/history/<timestamp>.md"""
+    try:
+        import json
+        from boyser.config import HISTORY_PATH
+
+        ts = time.strftime("%Y%m%d-%H%M%S")
+        model_name = getattr(backend, "name", "unknown")
+        path = os.path.join(HISTORY_PATH, f"session-{ts}-{model_name.replace('/', '-')}.md")
+        os.makedirs(HISTORY_PATH, exist_ok=True)
+
+        lines = [
+            f"# BOYSER AI Session — {ts}",
+            f"Model: {model_name}",
+            f"Messages: {len(messages)}",
+            "---",
+        ]
+        for i, m in enumerate(messages):
+            role = m.get("role", "?")
+            content = m.get("content", "")
+            if isinstance(content, list):
+                content = json.dumps(content, ensure_ascii=False, indent=2)
+            lines.append(f"\n### [{i+1}] {role}\n{content}")
+
+        text = "\n".join(lines)
+        # Limit to 50 most recent sessions
+        existing = sorted(
+            f for f in os.listdir(HISTORY_PATH) if f.startswith("session-") and f.endswith(".md")
+        )
+        while len(existing) >= 50:
+            os.remove(os.path.join(HISTORY_PATH, existing.pop(0)))
+
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(text)
+        return path
+    except Exception:
+        return None
+
+
 def main() -> None:
     """Entry point: parse args, setup config, run REPL loop."""
     import boyser.config as _cfg
+
+    # Register auto-save on clean exit
+    import atexit
+    _saved_path = [None]
+
+    def _save_on_exit():
+        p = _save_session_log(messages, backend)
+        if p:
+            _saved_path[0] = p
+            console.print(f"\n[dim]💾 บันทึก session log → {p}[/]")
 
     parser = argparse.ArgumentParser(description="BOYSER AI — mini Claude Code")
     parser.add_argument("--local", nargs="?", const=OLLAMA_URL, default=None, metavar="BASE_URL",
@@ -471,6 +520,9 @@ def main() -> None:
         cfg = load_config()
         if cfg is None or args.setup:
             cfg = setup_wizard(cfg) or cfg
+
+    # Only auto-save interactive sessions (has messages)
+    atexit.register(_save_on_exit)
 
     apply_theme(cfg.get("theme", "ฟ้า"))
     _cfg.THINK_ON = cfg.get("think", False)

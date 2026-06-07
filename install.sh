@@ -147,6 +147,26 @@ case "$LAUNCHER" in
         ;;
 esac
 
+# ---- Install shell completion ----
+echo "  → Installing shell completion..."
+_COMPLETION_SRC="$DIR/scripts/completion.sh"
+if [ -f "$_COMPLETION_SRC" ]; then
+    # Try system-wide first
+    for _comp_dir in "/etc/bash_completion.d" "/usr/share/bash-completion/completions"; do
+        if [ -d "$_comp_dir" ] 2>/dev/null; then
+            cp "$_COMPLETION_SRC" "$_comp_dir/boyser-ai" 2>/dev/null && \
+                echo "     ✓ Tab-completion at $_comp_dir/boyser-ai" && break
+        fi
+    done
+    # Fallback: add source line to bashrc
+    if ! grep -q "completion.sh\|boyser-ai.*completion" "${HOME}/.bashrc" 2>/dev/null; then
+        echo "" >> "${HOME}/.bashrc"
+        echo "# BOYSER AI tab completion" >> "${HOME}/.bashrc"
+        echo "[ -f \"$DIR/scripts/completion.sh\" ] && source \"$DIR/scripts/completion.sh\"" >> "${HOME}/.bashrc"
+        echo "     ✓ Tab-completion source added to ~/.bashrc"
+    fi
+fi
+
 # ---- Done ----
 echo ""
 echo "${GREEN}${BOLD}  ✓ BOYSER AI installed successfully!${NC}"

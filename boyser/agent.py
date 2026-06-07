@@ -301,6 +301,14 @@ def setup_wizard(old_cfg: dict | None = None) -> dict | None:
             if load_config():
                 console.print("[dim]ยกเลิก — ใช้ค่าเดิม[/]")
                 return None
+            if not sys.stdin.isatty():
+                console.print("\n[yellow]ไม่สามารถตั้งค่าได้เพราะ stdin ไม่ใช่ terminal[/]")
+                console.print()
+                console.print("  รันใน terminal จริงก่อน หรือสร้าง config ด้วย:", style="dim")
+                console.print(f"    mkdir -p {os.path.dirname(CONFIG_PATH)}", style="dim")
+                console.print(f"    echo '{{\"backend\":\"local\",\"base_url\":\"...\",\"model\":\"...\"}}' > {CONFIG_PATH}", style="dim")
+                console.print()
+                sys.exit(1)
             console.print("[yellow]ยังไม่เคยตั้งค่า — ต้องเลือก backend ก่อน (Ctrl+C = ออกโปรแกรม)[/]")
             continue
 

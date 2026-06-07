@@ -139,10 +139,13 @@ if [ -n "$_CMD" ] && [ -t 0 ] && [ -t 1 ]; then
     echo ""
     exec "$_CMD"
 elif [ -n "$_CMD" ]; then
-    echo "  Run:  ${CYAN}boyser-ai${NC}"
+    echo "  Run:  ${CYAN}boyser-ai${NC}  (ใน terminal จริงสำหรับตั้งค่ารอบแรก)"
     echo ""
-    echo "  ${YELLOW}Tip:${NC} Run in an interactive terminal for first-time setup:"
+    echo "  ${YELLOW}Tip:${NC} First time setup requires an interactive terminal:"
     echo "    ${CYAN}boyser-ai${NC}"
+    echo ""
+    echo "  หรือสร้าง config ล่วงหน้า:"
+    echo "    ${CYAN}boyser-ai --setup${NC}"
     echo ""
 else
     echo "  Run:  ${CYAN}${HOME}/.local/bin/boyser-ai${NC}"

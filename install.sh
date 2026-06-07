@@ -164,10 +164,11 @@ if [ -n "$_CMD" ] && [ -t 0 ] && [ -t 1 ]; then
     echo ""
     exec "$_CMD"
 elif [ -n "$_CMD" ]; then
-    echo "  Run:  ${CYAN}${_CMD}${NC}"
+    _NAME=$(basename "$_CMD")
+    echo "  Run:  ${CYAN}${_CMD}${NC} or ${CYAN}${_NAME}${NC}"
     echo ""
     echo "  ${YELLOW}Tip:${NC} ถ้าใช้ shell นี้ต่อ เปิด terminal ใหม่ หรือ:"
-    echo "    ${CYAN}source ~/.bashrc && ${_CMD}${NC}"
+    echo "    ${CYAN}source ~/.bashrc && ${_NAME}${NC}"
     echo ""
 else
     echo "  ${YELLOW}⚠ Could not create launcher!${NC}"

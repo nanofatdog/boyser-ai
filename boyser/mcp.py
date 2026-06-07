@@ -131,20 +131,24 @@ def _jsonrpc_request(method: str, params: dict | None = None) -> dict:
 
 # ── server config loading / saving ──────────────────────────────────
 
-def load_mcp_config() -> list[dict]:
-    """Load MCP server list from *MCP_CONFIG_PATH*.
+def load_mcp_config() -> dict:
+    """Load MCP server config from *MCP_CONFIG_PATH*.
 
-    Returns a list of server dicts::
+    Returns a dict with ``servers`` key::
 
-        [{"name": "...", "command": "...", "args": [...]}]
+        {"servers": [{"name": "...", "command": "...", "args": [...]}]}
     """
     try:
         with open(MCP_CONFIG_PATH, encoding="utf-8") as f:
             data = json.load(f)
     except (OSError, json.JSONDecodeError):
-        return []
-    servers = data if isinstance(data, list) else data.get("servers", [])
-    return servers
+        return {"servers": []}
+    if isinstance(data, list):
+        return {"servers": data}
+    if isinstance(data, dict):
+        servers = data.get("servers", [])
+        return {"servers": servers if isinstance(servers, list) else []}
+    return {"servers": []}
 
 
 def save_mcp_config(servers: list[dict]) -> None:

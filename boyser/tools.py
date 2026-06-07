@@ -387,7 +387,7 @@ def parse_text_toolcalls(text: str) -> list:
     s = text.strip()
     calls: list = []
 
-    # A) ทั้งก้อนเป็น JSON tool call ก้อนเดียว (qwen2.5-coder) หรือใน ```json ... ```
+    # A) JSON tool call เดี่ยว หรือใน ```json ... ```
     fence = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", s, re.S)
     candidate = fence.group(1) if fence else (s if s.startswith("{") else "")
     if candidate and '"name"' in candidate:
@@ -419,7 +419,6 @@ def parse_text_toolcalls(text: str) -> list:
         return calls
 
     # C) <function=NAME>...<parameter=KEY>VALUE...</...>
-    #    (ปิดด้วย </function> หรือ </tool_call> ก็ได้)
     for fm in re.finditer(
         r"<function=([^>\s]+)>(.*?)(?:</function>|</tool_call>|\Z)", s, re.S
     ):
@@ -433,6 +432,54 @@ def parse_text_toolcalls(text: str) -> list:
             args[pm.group(1).strip()] = pm.group(2).strip()
         if name:
             calls.append({"name": name, "args": args})
+    if calls:
+        return calls
+
+    # D) fallback: สแกนหา {…} ด้วยการนับ depth ดัก JSON tool call หลายก้อนติดกัน
+    #    (regex จับ nested braces ไม่ได้ → ใช้ pointer scan แทน)
+    i = 0
+    while i < len(s):
+        brace_start = s.find("{", i)
+        if brace_start == -1:
+            break
+        depth = 0
+        j = brace_start
+        while j < len(s):
+            ch = s[j]
+            if ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    chunk = s[brace_start : j + 1]
+                    if '"name"' in chunk:
+                        try:
+                            o = json.loads(chunk)
+                            if isinstance(o, dict) and "name" in o:
+                                calls.append(
+                                    {
+                                        "name": o["name"],
+                                        "args": o.get("arguments") or o.get("parameters") or {},
+                                    }
+                                )
+                        except json.JSONDecodeError:
+                            pass
+                    i = j + 1
+                    break
+            elif ch in "\"'" and (j == 0 or s[j - 1] != "\\"):
+                # ข้าม string (ป้องกัน } ใน string)
+                quote = ch
+                j += 1
+                while j < len(s):
+                    if s[j] == "\\":
+                        j += 2
+                        continue
+                    if s[j] == quote:
+                        break
+                    j += 1
+            j += 1
+        else:
+            break  # brace เปิดแต่ไม่เจอปิด
     return calls
 
 

@@ -521,28 +521,30 @@ class SubAgentClient:
 # SubAgentManager (singleton)
 # ---------------------------------------------------------------------------
 
-_SINGLETON: Optional["SubAgentManager"] = None
-
-
 class SubAgentManager:
     """Singleton that tracks all running sub-agents across the application."""
+
+    _instance: Optional["SubAgentManager"] = None
+
+    def __new__(cls, *args, **kwargs):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
 
     def __init__(
         self,
         max_concurrent: int = 3,
         max_total: int = 10,
-        _is_singleton: bool = False,
     ):
+        if hasattr(self, "_initialized") and self._initialized:
+            return
+        self._initialized = True
         self.max_concurrent = max_concurrent
         self.max_total = max_total
         self.active_subagents: dict[str, SubAgentSession] = {}
         self._finished: list[SubAgentSession] = []
         self._total_created: int = 0
         self._in_flight: int = 0  # sessions currently running (not yet finished)
-
-        if _is_singleton:
-            global _SINGLETON
-            _SINGLETON = self
 
     @classmethod
     def get_instance(
@@ -551,20 +553,17 @@ class SubAgentManager:
         max_total: int = 10,
     ) -> "SubAgentManager":
         """Return the singleton SubAgentManager, creating it if needed."""
-        global _SINGLETON
-        if _SINGLETON is None:
-            _SINGLETON = cls(
+        if cls._instance is None:
+            cls._instance = cls(
                 max_concurrent=max_concurrent,
                 max_total=max_total,
-                _is_singleton=True,
             )
-        return _SINGLETON
+        return cls._instance
 
     @classmethod
     def reset_instance(cls) -> None:
         """Reset the singleton (useful for testing)."""
-        global _SINGLETON
-        _SINGLETON = None
+        cls._instance = None
 
     # ------------------------------------------------------------------
     # Queries

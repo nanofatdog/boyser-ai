@@ -312,99 +312,99 @@ def apply_theme(name: str) -> None:
 TOOLS = [
     {
         "name": "bash",
-        "description": "Run a bash command on the user's machine and return stdout/stderr. Call this for anything that needs the shell: git, installing packages, running scripts, system info.",
+        "description": "Execute a shell command (git, pip, scripts, etc.). 120s timeout. Press ESC to kill the running command immediately (SIGKILL). The command runs in the project working directory.",
         "input_schema": {
             "type": "object",
             "properties": {
-                "command": {"type": "string", "description": "The bash command to run"},
+                "command": {"type": "string", "description": "The shell command to run — bash syntax on Linux/macOS, cmd.exe or Git Bash on Windows"},
             },
             "required": ["command"],
         },
     },
     {
         "name": "read_file",
-        "description": "Read a text file and return its contents with line numbers.",
+        "description": "Read a file and display contents with line numbers (1-indexed). Only shows up to 2000 lines. Use this to inspect source code, config files, or logs.",
         "input_schema": {
             "type": "object",
             "properties": {
-                "path": {"type": "string", "description": "Absolute or relative file path"},
+                "path": {"type": "string", "description": "Path to the file (absolute or relative to working directory)"},
             },
             "required": ["path"],
         },
     },
     {
         "name": "write_file",
-        "description": "Create or overwrite a file with the given content.",
+        "description": "Create a new file or overwrite an existing one. Shows a unified diff of changes before writing. Creates parent directories automatically. Always shows a preview before asking for confirmation.",
         "input_schema": {
             "type": "object",
             "properties": {
-                "path": {"type": "string"},
-                "content": {"type": "string"},
+                "path": {"type": "string", "description": "File path (absolute or relative)"},
+                "content": {"type": "string", "description": "Full file content to write"},
             },
             "required": ["path", "content"],
         },
     },
     {
         "name": "edit_file",
-        "description": "Replace an exact string in a file with a new string. old_string must appear exactly once in the file.",
+        "description": "Make a surgical string replacement in a file. old_string must appear exactly once (unless replace_all=true). Shows a unified diff preview. For whitespace-sensitive edits or fuzzy matching, use 'patch' instead.",
         "input_schema": {
             "type": "object",
             "properties": {
-                "path": {"type": "string"},
-                "old_string": {"type": "string"},
-                "new_string": {"type": "string"},
+                "path": {"type": "string", "description": "Path to the file to edit"},
+                "old_string": {"type": "string", "description": "Exact text to find (must be unique in the file)"},
+                "new_string": {"type": "string", "description": "Replacement text"},
             },
             "required": ["path", "old_string", "new_string"],
         },
     },
     {
         "name": "glob",
-        "description": "Find files matching a glob pattern, sorted by modification time (newest first). Call this to locate files before reading or editing them. Example patterns: '**/*.py', 'src/**/*.ts'.",
+        "description": "Find files by glob pattern (e.g. '**/*.py', 'src/**/*.ts'). Results sorted by modification time (newest first). Automatically excludes .venv/ and .git/ directories. Use BEFORE reading or editing to locate files.",
         "input_schema": {
             "type": "object",
             "properties": {
-                "pattern": {"type": "string", "description": "Glob pattern, ** matches directories recursively"},
+                "pattern": {"type": "string", "description": "Glob pattern — use ** for recursive matching in subdirectories"},
             },
             "required": ["pattern"],
         },
     },
     {
         "name": "grep",
-        "description": "Search file contents with a regex pattern (recursive, skips .git/.venv/node_modules). Returns matching lines as path:line:text. Call this to find where something is defined or used.",
+        "description": "Search file contents with a regular expression. Recursive, skips .git/.venv/node_modules/__pycache__. Returns up to 100 matches with path:line:text format. Falls back to pure-Python implementation when system grep is unavailable.",
         "input_schema": {
             "type": "object",
             "properties": {
-                "pattern": {"type": "string", "description": "Regex pattern to search for"},
-                "path": {"type": "string", "description": "Directory or file to search in (default: current directory)"},
+                "pattern": {"type": "string", "description": "Regex pattern to search for (Python regex syntax)"},
+                "path": {"type": "string", "description": "Directory or file to search in (default: current working directory)"},
             },
             "required": ["pattern"],
         },
     },
     {
         "name": "web_search",
-        "description": "Search the web (DuckDuckGo) and return result titles, URLs and SHORT snippets. The snippets are usually page descriptions, NOT the actual data.",
+        "description": "Search the web using DuckDuckGo. Returns titles, URLs, and snippets. IMPORTANT: Snippets are often just page descriptions, not the actual data. After finding a promising URL, ALWAYS use web_fetch to read the full page content before answering factual questions. Auto-fetches the top result's full content for you.",
         "input_schema": {
             "type": "object",
             "properties": {
-                "query": {"type": "string"},
+                "query": {"type": "string", "description": "Search query (natural language)"},
             },
             "required": ["query"],
         },
     },
     {
         "name": "web_fetch",
-        "description": "Fetch a URL and return its text content (HTML stripped). Call this to read a specific page, often after web_search.",
+        "description": "Fetch a URL's text content (HTML/JS stripped to plain text). Returns up to 15,000 characters. Use this after web_search to read the actual content of a page — DON'T answer factual questions from snippets alone.",
         "input_schema": {
             "type": "object",
             "properties": {
-                "url": {"type": "string"},
+                "url": {"type": "string", "description": "Full URL to fetch (http/https)"},
             },
             "required": ["url"],
         },
     },
     {
         "name": "todo_write",
-        "description": "Create or update the task list (your plan). Pass the FULL list every time. Use it to plan multi-step work and track progress; keep exactly one task in_progress.",
+        "description": "Create or update a structured task plan. Call this FIRST for multi-step tasks (3+ steps). Pass the FULL list of tasks every time, each with a status. Keep exactly ONE task 'in_progress' at a time. Shows a rich visual panel when called.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -413,11 +413,12 @@ TOOLS = [
                     "items": {
                         "type": "object",
                         "properties": {
-                            "task": {"type": "string"},
-                            "status": {"type": "string", "enum": ["pending", "in_progress", "done"]},
+                            "task": {"type": "string", "description": "Description of the task step"},
+                            "status": {"type": "string", "enum": ["pending", "in_progress", "done"], "description": "pending=waiting, in_progress=currently working, done=completed"},
                         },
                         "required": ["task", "status"],
                     },
+                    "description": "Full ordered list of all tasks. Pass ALL items every time, not just the changed one.",
                 },
             },
             "required": ["todos"],
@@ -425,35 +426,35 @@ TOOLS = [
     },
     {
         "name": "remember",
-        "description": "Save one durable fact to persistent memory so it is available in future sessions. One concise fact per call.",
+        "description": "Save one durable fact to persistent memory that will be available in FUTURE sessions. Use this for user preferences, project conventions, important decisions. Each call saves one fact. Don't save trivia or one-time info.",
         "input_schema": {
             "type": "object",
             "properties": {
-                "fact": {"type": "string"},
+                "fact": {"type": "string", "description": "One concise fact to remember (e.g. 'User prefers tabs over spaces')"},
             },
             "required": ["fact"],
         },
     },
     {
         "name": "use_skill",
-        "description": "Load the full step-by-step instructions for a named skill. Call this BEFORE starting a task that matches a skill's description.",
+        "description": "Load the full step-by-step instructions for a named skill (listed under 'Skills available' in the system prompt). Call this BEFORE starting a task that matches a skill's description. The skill instructions will be loaded into context.",
         "input_schema": {
             "type": "object",
             "properties": {
-                "name": {"type": "string", "description": "Skill name exactly as listed"},
+                "name": {"type": "string", "description": "Skill name exactly as listed in the system prompt"},
             },
             "required": ["name"],
         },
     },
     {
         "name": "ask_user",
-        "description": "Ask the user a question and let them PICK from options. CALL THIS when the request is ambiguous or has 2+ reasonable options. Returns the user's choice.",
+        "description": "Ask the user a structured question with predefined options to pick from. Use this INSTEAD of guessing when the request is ambiguous, there are 2+ valid approaches, you need a preference (color/format/framework/scope), or before doing something irreversible. The user picks from your options or types their own.",
         "input_schema": {
             "type": "object",
             "properties": {
-                "question": {"type": "string"},
-                "options": {"type": "array", "items": {"type": "string"}, "description": "2-5 options"},
-                "multiple": {"type": "boolean", "description": "true = checkbox, false = radio"},
+                "question": {"type": "string", "description": "Question to present to the user"},
+                "options": {"type": "array", "items": {"type": "string"}, "description": "2-5 concrete options for the user to pick from"},
+                "multiple": {"type": "boolean", "description": "true = user can select multiple options (checkbox), false = single choice (radio)"},
             },
             "required": ["question", "options"],
         },

@@ -125,7 +125,9 @@ agent.py                         # Thin wrapper 20 บรรทัด
 ```bash
 # แบบใช้ curl (สะดวกที่สุด)
 curl -sSL https://raw.githubusercontent.com/nanofatdog/boyser-ai/main/install.sh | sh
+```
 
+```bash
 # หรือ clone แล้วติดตั้ง
 git clone https://github.com/nanofatdog/boyser-ai.git
 cd boyser-ai

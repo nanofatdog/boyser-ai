@@ -1,27 +1,35 @@
 # Changelog
 
-## 2026-06-07
-- **รองรับ Windows**: ติดตั้งด้วย `install.bat` (venv + skills + launcher `boyser-ai.cmd` + เพิ่ม PATH ให้อัตโนมัติ) — ฟีเจอร์ครบเท่า Linux/mac
+## 2026-06-07 — UKA Major Upgrade 🚀
+- **Multi-module refactor**: แยก single-file agent.py (~2400 บรรทัด) เป็น package 8 modules (`boyser/`)
+  - `config.py` — constants, paths, TOOLS schema, config I/O
+  - `interrupt.py` — ESC handler, hard_close, esc_watch
+  - `repl.py` — prompt_toolkit REPL, slash commands, @ file mentions
+  - `tools.py` — 16 tool implementations + TOOL_FUNCS dispatch
+  - `backend.py` — ClaudeBackend + LocalBackend (Ollama/Cloud/llama.cpp)
+  - `agent.py` — build_system, wizard, main loop
+  - `mcp.py` — 🔌 NEW: Model Context Protocol client
+  - `subagent.py` — 🧩 NEW: SubAgent delegation for parallel work
+- **4 new tools** (12 → 16): `vision`, `patch`, `search_files`, `subagent`
+- **MCP integration**: auto-discover MCP servers at startup
+- **SubAgent delegation**: spawn child agents for background parallel work
+- **GitHub Actions CI**: lint (3 Python versions) + security scan
+- **AGENTS.md**: project context for AI agents working on this codebase
+- **README bilingual**: ไทย + English, beautiful formatting, all features documented
+- **curl one-liner install**: `curl -sSL ... | sh` works for Linux/macOS
+- **Windows install.ps1**: PowerShell installer
+- **Tool descriptions**: all 16 tools rewritten with clear usage guidance
+- **Security audit**: verified no secrets/tokens/IPs in code or git history
+
+## 2026-06-07 (upstream)
+- **รองรับ Windows**: ติดตั้งด้วย `install.bat` (venv + skills + launcher `boyser-ai.cmd` + เพิ่ม PATH ให้อัตโนมัติ) — ฟีเจอร์ครบเท่า Linux/macOS
   - ESC หยุดกลางคันใช้ `msvcrt` แทน termios/select
   - tool `bash` ใช้ Git Bash อัตโนมัติถ้ามี (หาจาก git บน PATH + ตำแหน่งติดตั้งมาตรฐาน — จงใจไม่ใช้ `which bash` เพราะบน Windows มักได้ WSL ซึ่งเป็นคนละ filesystem) ไม่มีก็ fallback เป็น cmd.exe พร้อมบอกโมเดลใน system prompt ให้เขียนคำสั่ง Windows
   - ฆ่าคำสั่งที่รันค้าง (ESC/timeout) ด้วย `taskkill /F /T` — ฆ่าลูกหลานครบเหมือน `killpg`
   - tool `grep` มี fallback ภาษา Python ตอนเครื่องไม่มี grep binary (ข้าม binary file + จำกัด 5 hit/ไฟล์ เหมือน grep จริง), `glob` กรอง `.venv`/`.git` ถูกแม้ path เป็น backslash, `/memory` เปิด notepad ถ้าไม่ได้ตั้ง EDITOR
 
-## 2026-06-06
-- wizard จำค่าเดิม: เปิด /model อีกครั้ง ทุกช่อง prefill จาก config เดิม (URL/โมเดล/num_ctx แก้ได้ในช่องเลย, API key กด Enter = ใช้ key เดิม, เมนูโมเดล/ธีม cursor ไปรอที่ค่าปัจจุบัน) — เดิมต้องพิมพ์ใหม่หมดทุกครั้ง
-- ESC = ย้อนกลับในเมนู (แบบ Claude Code): wizard เมนูลึกถอยกลับไปเลือก backend, ส่วนเมนูแรก / /model / /theme กด ESC = ยกเลิกเฉยๆ ไม่หลุดโปรแกรม (เดิมยกเลิกได้ทางเดียวคือ Ctrl+C ซึ่งปิดโปรแกรมเลย) — ลูกศรยังใช้ปกติ, ESC ตอบไวใน 90ms
-- ใหม่: `@ไฟล์` ในช่องแชต — พิมพ์ @ เด้งเมนูรายชื่อไฟล์ใน cwd (filter ได้), ส่งแล้วแนบเนื้อไฟล์ให้โมเดลอัตโนมัติ (cap 100k ตัวอักษร, โชว์ 📎); พิมพ์ `./` เด้งเมนูเดียวกันแต่เติมแค่ path
-- แก้ wizard เติม `:11434` ทับ URL https — ใส่โดเมน (เช่นผ่าน Cloudflare Tunnel) แล้วพังเพราะกลายเป็นพอร์ตผิด ตอนนี้เติมพอร์ตเฉพาะ http
-- ใช้ Ollama นอกบ้านผ่านโดเมน/auth proxy ได้: wizard Ollama ถาม API key (optional) + native path แนบ Authorization ทุก call (probe/chat/vote/list) — คู่กับ auth proxy + Cloudflare Tunnel ฝั่ง server
-- โชว์เวอร์ชันบนหน้า CLI: banner + /status แสดง `v<n> (<hash> · <วันที่>)` คำนวณจาก git อัตโนมัติ — /update แล้วเลขขยับเอง (ติดตั้งแบบไม่มี git จะซ่อนบรรทัดนี้)
-- ใหม่: `/vote` — เอกสารยาว (>150k ตัวอักษร) ถามซ้ำ 3 รอบอัตโนมัติแล้วหา consensus (รอบ 2-3 แทบฟรีเพราะ KV cache) — แก้อาการโมเดล local ตอบไม่นิ่งบน context ยาวแม้ temp 0 (เทสพบเงื่อนไขเดิมเป๊ะให้คนละคำตอบ/บางทีติด loop); ตรงกันหมดใช้เลย ไม่ตรงให้โมเดลตัดสินเสียงข้างมาก; เปิดเป็น default ปิดได้ด้วย /vote
-- ถอน repeat_penalty ออกจากโหมดเอกสารยาว (เหลือแค่ num_predict cap) — เทสซ้ำทั้งชุดพบผลไม่นิ่ง: บางเอกสารช่วย multi-hop บางเอกสารไม่ช่วย แถมทำ recall รายการยาวพัง (9/10 → 0/10)
-- แก้ crash เมื่อโมเดลส่ง todos เป็น list ของ string (ไม่ใช่ dict) — todo_write ห่อเป็น dict ให้เอง (เจอจากเทสเอกสารยาวจริง: โมเดลตอบเสร็จแล้วเรียก todo_write format เพี้ยน ทำทั้ง turn พัง)
-- ฉลาดขึ้นกับเอกสารยาว: request ที่ context เกิน ~150k ตัวอักษรจะใส่ `repeat_penalty 1.3` + `num_predict 4096` ให้อัตโนมัติ (Ollama) — แก้อาการวน loop ตอน generate และจับคู่ข้อมูลข้าม context ผิดตัว (พิสูจน์ด้วย stress test จริงที่ 190k token: multi-hop 0/2 → 2/2) โดยไม่กระทบ codegen ปกติ
+## 2026-06-06 (upstream)
+- wizard จำค่าเดิม, ESC ย้อนกลับในเมนู, @ไฟล์ autocomplete, /vote เอกสารยาว, /update, version banner
 
-## 2026-06-05
-- แก้ ESC ไม่ทำงานบางครั้ง: ตอนนี้หยุดได้ทันทีแม้กำลังรอ token แรก (โหลดโมเดล/prompt eval) และระหว่างรัน tools (ไม่ยิงรอบใหม่ต่อ) — รวมถึงฆ่า bash ที่กำลังรันอยู่ทันที
-- ใช้ Ollama ผ่าน LAN ได้: wizard ถาม URL/IP (ใส่แค่ IP ได้) + วิธีเปิด server รับ LAN ใน README
-- ระบบแจ้งเตือนอัปเดต + คำสั่ง /update
-- เพิ่ม screenshot ใน README
+## 2026-06-05 (upstream)
 - เผยแพร่ครั้งแรก: agent.py + 42 skills + install.sh

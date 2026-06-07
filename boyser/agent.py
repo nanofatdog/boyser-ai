@@ -131,6 +131,34 @@ def build_system(base: str) -> tuple[str, list[str]]:
         )
         loaded.append(f"skills ({len(discovered)})")
 
+    # MCP auto-discovery — connect servers and list their tools
+    try:
+        from boyser.mcp import MCPClient, load_mcp_config
+        mcp_config = load_mcp_config()
+        mcp_servers = mcp_config.get("servers", [])
+        mcp_tools_list = []
+        if mcp_servers:
+            mcp_client = MCPClient()
+            for srv in mcp_servers:
+                name = srv.get("name", "")
+                cmd = srv.get("command", "")
+                args = srv.get("args", [])
+                if name and cmd:
+                    try:
+                        tools = mcp_client.connect_stdio(name, cmd, args)
+                        for t in (tools or []):
+                            mcp_tools_list.append(f"  [{name}] {t['name']}: {t.get('description', '')[:80]}")
+                    except Exception:
+                        pass
+            if mcp_tools_list:
+                parts.append(
+                    "\n# MCP Tools (connected external servers)\n"
+                    + "\n".join(mcp_tools_list)
+                )
+                loaded.append(f"MCP ({len(mcp_servers)} servers, {len(mcp_tools_list)} tools)")
+    except Exception:
+        pass
+
     try:
         with open(MEMORY_FILE, encoding="utf-8") as f:
             mem = f.read().strip()
